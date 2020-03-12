@@ -5,14 +5,34 @@ import json
 import numpy as np
 import pandas as pd
 import nibabel as nib
-from sklearn.svm import SVR
-from sklearn.externals import joblib
-from cnn import ConvNet
+from keras.models import Sequential
+from keras.layers import Dense, Dropout
+
+# AniCor
+def zscore(data, axis):
+    data -= data.mean(axis=axis, keepdims=True)
+    data /= data.std(axis=axis, keepdims=True)
+    return np.nan_to_num(data, copy=False)
+
+def correlation(matrix1, matrix2):
+    d1 = matrix1.shape[-1]
+    d2 = matrix2.shape[-1]
+
+    assert d1 == d2
+    assert matrix1.ndim <= 2
+    assert matrix2.ndim <= 2
+    
+    matrix1 = zscore(matrix1.astype(float), matrix1.ndim - 1) / np.sqrt(d1)
+    matrix2 = zscore(matrix2.astype(float), matrix2.ndim - 1) / np.sqrt(d2)
+    
+    if matrix1.ndim >= matrix2.ndim:
+        return np.dot(matrix1, matrix2.T)
+    else:
+        return np.dot(matrix2, matrix1.T)
 
 def load_data(filepath):
     nib_format = nib.load(filepath)
     data = nib_format.get_fdata()
-    print('Training Data Loaded')
     return data
 
 def read_stimulus_csv(stimulus_path):
@@ -37,6 +57,25 @@ def preprocess_data(data):
     data_preprocessed /= vstdv[None,:]
     return data_preprocessed
 
+def tune_model(x_train, y_train_both, dense_unit):
+    for i, pos in enumerate(['x','y']):
+        model = Sequential()
+        model.add(Dense(units=dense_unit, activation='relu', input_dim=27196))
+        model.add(Dropout(0.5))
+        model.add(Dense(1))
+        model.summary()
+        model.compile(optimizer='adam',loss='mean_squared_error',metrics=['mae'])
+        
+        y_train = np.transpose(y_train_both[i,:])
+        model.fit(x_train, y_train, epochs=50, batch_size=1)
+        y_pred = model.predict(x_test, batch_size=1)
+        
+        corr = correlation(np.transpose(y_pred), np.transpose(y_train))
+        print('Running dense unit '+str(dense_unit)+ pos + ' Correlation '+str(round(corr[0], 3)))
+
+        output_dir = '/Users/xinhui.li/Documents/PEER/data/PEER_05/output_denseout1/'
+        np.savetxt(output_dir+'test_'+str(dense_unit)+'_'+pos+'.csv', y_pred, delimiter=',')
+    return y_pred
 
 ### load and prepare data for PEER
 
@@ -73,18 +112,6 @@ filepath = os.path.join(top_data_dir, '_scan_peer2', configs['test_file'])
 data_test = load_data(filepath)
 x_test=preprocess_data(data_test)
 
-from keras.models import Sequential
-from keras.layers import Dense
-
-model = Sequential()
-model.add(Dense(units=512, activation='relu', input_dim=27196))
-model.add(Dense(units=2))
-model.summary()
-model.compile(optimizer='adam',loss='mean_squared_error',metrics=['mae'])
-y_train = np.transpose(y_train)
-model.fit(x_train, y_train, epochs=50, batch_size=1)
-# import pdb; pdb.set_trace()
-x_pred = model.predict(x_test, batch_size=1)
-
-output_dir = '/Users/xinhui.li/Documents/PEER/data/PEER_05/output_cnn/'
-np.savetxt(output_dir+'test.csv',x_pred,delimiter=',')
+for n in [1024]:
+    tune_model(x_train, y_train, n)
+    
