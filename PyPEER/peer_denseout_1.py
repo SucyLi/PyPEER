@@ -112,6 +112,6 @@ filepath = os.path.join(top_data_dir, '_scan_peer2', configs['test_file'])
 data_test = load_data(filepath)
 x_test=preprocess_data(data_test)
 
-for n in [1024]:
+for n in [1024, 512, 256, 128, 64]:
     tune_model(x_train, y_train, n)
     
